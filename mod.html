@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dibs — back room</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  body { overflow: auto; padding: 20px; max-width: 720px; margin: 0 auto; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 32px; margin: 0 0 4px; }
+  .row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+  input { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); flex: 1; min-width: 120px; }
+  button.b { border: 0; border-radius: 10px; padding: 10px 14px; background: var(--ink); color: var(--bg); font-weight: 600; cursor: pointer; }
+  button.b.ghost { background: var(--group); color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 12px; }
+  td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  .banned { opacity: .5; text-decoration: line-through; }
+  pre { background: var(--group); padding: 10px; border-radius: 10px; white-space: pre-wrap; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Dibs — back room</h1>
+<p class="meta">Linked nowhere. The secret lives in this tab only. In <code>?demo=1</code> the secret is <code>demo</code>.</p>
+<div class="row"><input id="secret" type="password" placeholder="moderator secret" autocomplete="off"><button class="b" id="load">Load players</button></div>
+<div class="row"><input id="name" placeholder="player name"><button class="b ghost" data-act="ban">Bench</button><button class="b ghost" data-act="unban">Unbench</button></div>
+<div class="row"><input id="newname" placeholder="new name (rename the player above)"><button class="b ghost" data-act="rename">Rename</button></div>
+<div class="row"><input id="hex" placeholder="hex id, e.g. -1_0 (clears the current hold)"><button class="b ghost" data-act="clear">Clear block</button></div>
+<pre id="out">—</pre>
+<table id="tbl" hidden><thead><tr><th>Name</th><th>Crew</th><th>Pts</th><th>Held</th><th>Last claim</th></tr></thead><tbody></tbody></table>
+<script type="module">
+  import { backend, DEMO } from './js/net.js';
+  const api = backend(); const $ = (s) => document.querySelector(s);
+  const out = (x) => { $('#out').textContent = typeof x === 'string' ? x : JSON.stringify(x, null, 1); };
+  const secret = () => { const s = $('#secret').value || sessionStorage.getItem('dibs-mod') || ''; if (s) sessionStorage.setItem('dibs-mod', s); return s; };
+  $('#secret').value = sessionStorage.getItem('dibs-mod') || (DEMO ? 'demo' : '');
+  async function call(action, a, b) {
+    try { return await api.rpc('dibs_mod', { p_secret: secret(), p_action: action, p_a: a ?? null, p_b: b ?? null }); }
+    catch (e) { out(e.code === 'nope' ? 'Wrong secret (20 misses in 15 min locks it).' : (e.code || e.message)); return null; }
+  }
+  $('#load').onclick = async () => {
+    const rows = await call('players'); if (!rows) return;
+    const tb = $('#tbl tbody'); tb.innerHTML = rows.map((p) => `<tr class="${p.banned ? 'banned' : ''}"><td>${p.name}</td><td>${p.crew}</td><td>${p.pts}</td><td>${p.held}</td><td>${p.last ? new Date(p.last).toLocaleString() : '—'}</td></tr>`).join('');
+    $('#tbl').hidden = false; out(`${rows.length} players`);
+  };
+  document.querySelectorAll('[data-act]').forEach((b) => b.onclick = async () => {
+    const act = b.dataset.act;
+    const r = act === 'clear' ? await call('clear', $('#hex').value.trim()) : act === 'rename' ? await call('rename', $('#name').value.trim(), $('#newname').value.trim()) : await call(act, $('#name').value.trim());
+    if (r) { out(r); $('#load').click(); }
+  });
+</script>
+</body>
+</html>

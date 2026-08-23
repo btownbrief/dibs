@@ -1,0 +1,5 @@
+.cache/
+playtest-out/
+node_modules/
+.DS_Store
+supabase/.temp/

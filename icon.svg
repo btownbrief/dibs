@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#13243B"/>
+  <g transform="translate(64 64)">
+    <polygon points="-18,-31 18,-31 36,0 18,31 -18,31 -36,0" fill="none" stroke="#FBF8F2" stroke-opacity=".35" stroke-width="4" transform="translate(-30 -18) scale(.6)"/>
+    <polygon points="-18,-31 18,-31 36,0 18,31 -18,31 -36,0" fill="none" stroke="#FBF8F2" stroke-opacity=".35" stroke-width="4" transform="translate(30 -18) scale(.6)"/>
+    <polygon points="-18,-31 18,-31 36,0 18,31 -18,31 -36,0" fill="none" stroke="#FBF8F2" stroke-opacity=".35" stroke-width="4" transform="translate(0 34) scale(.6)"/>
+    <polygon points="-18,-31 18,-31 36,0 18,31 -18,31 -36,0" fill="#2E7D8A" stroke="#FBF8F2" stroke-width="4"/>
+    <text x="0" y="11" text-anchor="middle" font-family="Georgia, 'Instrument Serif', serif" font-style="italic" font-size="34" fill="#FBF8F2">D</text>
+  </g>
+</svg>

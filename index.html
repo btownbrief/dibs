@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dibs — call dibs on Burlington, one block at a time</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="description" content="Burlington is 920 blocks. Stand in one, tap, it's yours — until someone takes it. A Btown Brief game.">
+<meta name="theme-color" content="#FBF8F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0A111C" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dibs">
+<meta property="og:title" content="Dibs — call dibs on Burlington">
+<meta property="og:description" content="Burlington is 920 blocks. Stand in one, tap, it's yours — until someone takes it.">
+<meta property="og:image" content="https://play.btownbrief.com/dibs/assets/og.png">
+<meta property="og:url" content="https://play.btownbrief.com/dibs/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="map" role="application" aria-label="Map of Burlington blocks"></div>
+
+<header class="top">
+  <div class="brand"><span class="word">Dibs</span><span class="sub">Burlington, VT</span></div>
+  <div class="top-actions">
+    <button class="round" id="btn-standings" aria-label="Standings" title="Standings">🏆</button>
+    <button class="round" id="btn-me" aria-label="You" title="You">🙋</button>
+  </div>
+</header>
+<button class="bounty" id="bounty" hidden><span class="star">★</span><span>Today's bounty ·</span><b id="bounty-name">—</b><span>· +10</span></button>
+<div class="hint" id="hint" hidden></div>
+
+<section class="dock" aria-live="polite">
+  <div class="here">
+    <div class="here-eyebrow" id="here-eyebrow">Your block</div>
+    <h2 class="here-name" id="here-name">Where are you?</h2>
+    <div class="here-status" id="here-status">Tap <b>Find me</b> and we'll work out which block you're standing in.</div>
+  </div>
+  <button class="claim" id="claim">Find me</button>
+  <div class="gps"><span class="g" id="gps">GPS off</span><button id="relocate" hidden>Re-find me</button></div>
+</section>
+
+<dialog class="sheet" id="sheet-welcome"><div class="panel"></div></dialog>
+<dialog class="sheet" id="sheet-standings"><div class="panel"></div></dialog>
+<dialog class="sheet" id="sheet-me"><div class="panel"></div></dialog>
+<dialog class="sheet small" id="sheet-hex"><div class="panel"></div></dialog>
+
+<div class="toast" id="toast" role="status"></div>
+<div id="confetti" aria-hidden="true"></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

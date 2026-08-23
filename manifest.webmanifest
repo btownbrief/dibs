@@ -1,0 +1,17 @@
+{
+  "id": "/dibs/",
+  "name": "Dibs — call dibs on Burlington",
+  "short_name": "Dibs",
+  "description": "Burlington is 920 blocks. Stand in one, tap, it's yours — until someone takes it.",
+  "start_url": "/dibs/?source=pwa",
+  "scope": "/dibs/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FBF8F2",
+  "theme_color": "#FBF8F2",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
