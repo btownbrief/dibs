@@ -189,9 +189,20 @@ for (const h of out) if (seen.get(h.name) > 1 && !h.lm) {
   const extra = h.streets.find((s) => !h.name.includes(s));
   if (extra) h.name = `${h.name.split(' & ')[0]} & ${extra}`;
 }
+// still-duplicate names (trail-only hexes mostly): suffix north→south so the feed can tell them apart
+const groups = new Map(); for (const h of out) { if (h.lm) continue; (groups.get(h.name) || groups.set(h.name, []).get(h.name)).push(h); }
+let suffixed = 0;
+for (const [, g] of groups) if (g.length > 1) {
+  g.sort((a, b) => b.ctr[0] - a.ctr[0] || a.ctr[1] - b.ctr[1]);
+  if (g.length === 2) { g[0].name += ' (north)'; g[1].name += ' (south)'; }
+  else g.forEach((h, i) => { h.name += ` · ${String.fromCharCode(65 + (i % 26))}${i >= 26 ? Math.floor(i / 26) : ''}`; });
+  suffixed += g.length;
+}
+const lmNames = new Set(out.filter((h) => h.lm).map((h) => h.name));
+for (const h of out) if (!h.lm && lmNames.has(h.name)) h.name += ' (edge)';
 const seen2 = new Map(); for (const h of out) seen2.set(h.name, (seen2.get(h.name) || 0) + 1);
 const dupes = [...seen2.entries()].filter(([, n]) => n > 1);
-console.error(`${dupes.length} duplicate names remain (ok): ${dupes.slice(0, 8).map(([n, k]) => `${n}×${k}`).join('; ')}`);
+console.error(`${suffixed} names suffixed; ${dupes.length} duplicate names remain: ${dupes.slice(0, 6).map(([n, k]) => `${n}×${k}`).join('; ')}`);
 
 out.sort((a, b) => a.id.localeCompare(b.id));
 const hoodsCount = {}; for (const h of out) hoodsCount[h.hood] = (hoodsCount[h.hood] || 0) + 1;

@@ -16,12 +16,12 @@ A [Btown Brief](https://www.btownbrief.com) game.
 |---|---|
 | Take a fresh/cold block | **+6** ("first tracks") |
 | Take someone's block | **+3** |
-| Hold a block | **1 pt/hour** (landmarks ★ pay **3**) |
+| Hold a block | **1 pt/hour** (landmarks ★ pay **3**), capped at **30 pts/hour** total so nobody wins by hoarding |
 | Today's bounty block (★ pulsing) | **+10** once per player per day |
 | Lock after a take | **15 min** — no ping-pong |
 | Untouched for 7 days | block goes **cold** (neutral); re-tap to warm |
 | Points | reset monthly (America/New_York); blocks carry over |
-| Guard rails | 20 s between claims · 12 m/s teleport guard · 200/day |
+| Guard rails | 20 s between claims · 12 m/s teleport guard · 200/day · fixes worse than 150 m refused |
 
 **Crews** are neighbourhoods: Downtown, Old North End, New North End, South End,
 The Hill, Winooski, Flatlanders. The map colours by the holder's crew, so the
@@ -34,8 +34,14 @@ board reads as territory even with a dozen players. Standings show players
   sent.** The server never receives lat/lng and has no column for it.
 - Identity is a 32-hex device token in localStorage, stored server-side as a
   sha256 hash. No accounts, no email. New browser = new player.
-- Your name + crew show on the blocks you hold and in the feed. That's the game,
-  and the welcome screen says so.
+- Your name + crew show on the blocks you hold and in the public recent-takes
+  feed (timestamps rounded to 15 min). That's the game, and the welcome screen
+  says so — so it is, honestly, a public record of *which blocks a named player
+  tapped and roughly when*, at 200 m resolution. The server keeps a hold/bonus
+  ledger per (hashed) player for scoring; nothing finer than a block, nothing
+  tied to an email or phone. Play under a name you're happy to see on a map.
+- Names are unique and can only be changed via the Me sheet (`dibs_profile`) or
+  the back room — a claim never renames, so a moderator rename sticks.
 
 ## Repo
 

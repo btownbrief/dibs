@@ -31,16 +31,17 @@
 <script type="module">
   import { backend, DEMO } from './js/net.js';
   const api = backend(); const $ = (s) => document.querySelector(s);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const out = (x) => { $('#out').textContent = typeof x === 'string' ? x : JSON.stringify(x, null, 1); };
   const secret = () => { const s = $('#secret').value || sessionStorage.getItem('dibs-mod') || ''; if (s) sessionStorage.setItem('dibs-mod', s); return s; };
   $('#secret').value = sessionStorage.getItem('dibs-mod') || (DEMO ? 'demo' : '');
   async function call(action, a, b) {
     try { return await api.rpc('dibs_mod', { p_secret: secret(), p_action: action, p_a: a ?? null, p_b: b ?? null }); }
-    catch (e) { out(e.code === 'nope' ? 'Wrong secret (20 misses in 15 min locks it).' : (e.code || e.message)); return null; }
+    catch (e) { out(e.code === 'nope' ? 'Wrong secret (50 misses in 15 min throttles guessing).' : (e.code || e.message)); return null; }
   }
   $('#load').onclick = async () => {
     const rows = await call('players'); if (!rows) return;
-    const tb = $('#tbl tbody'); tb.innerHTML = rows.map((p) => `<tr class="${p.banned ? 'banned' : ''}"><td>${p.name}</td><td>${p.crew}</td><td>${p.pts}</td><td>${p.held}</td><td>${p.last ? new Date(p.last).toLocaleString() : '—'}</td></tr>`).join('');
+    const tb = $('#tbl tbody'); tb.innerHTML = rows.map((p) => `<tr class="${p.banned ? 'banned' : ''}"><td>${esc(p.name)}</td><td>${esc(p.crew)}</td><td>${p.pts}</td><td>${p.held}</td><td>${p.last ? new Date(p.last).toLocaleString() : '—'}</td></tr>`).join('');
     $('#tbl').hidden = false; out(`${rows.length} players`);
   };
   document.querySelectorAll('[data-act]').forEach((b) => b.onclick = async () => {

@@ -16,6 +16,7 @@ export const RULES = Object.freeze({
   cooldownSec: 20,     // min seconds between a player's claims
   maxSpeedMps: 12,     // faster than this between consecutive claims = not on foot/bike
   dailyCap: 200,       // claims per player per local day
+  maxHoldRate: 30,     // hold income capped at this many pts/hour overall (takes/bounties uncapped)
   goodAccuracyM: 60,   // ≤ this: claim freely
   maxAccuracyM: 150,   // > this: refuse, ask to step outside
   nameMin: 2, nameMax: 20,
@@ -97,7 +98,7 @@ export function holdPoints(holds, now, ms = monthStart(now)) {
     const end = h.ended_at ?? now; const start = Math.max(h.started_at, ms);
     if (end > start) pts += ((end - start) / 3600e3) * RULES.holdPerHour * (h.weight || 1);
   }
-  return pts;
+  return Math.min(pts, (RULES.maxHoldRate * (now - ms)) / 3600e3);
 }
 export function lockedUntil(hold) { return hold ? hold.touched_at + RULES.lockMin * 60e3 : 0; }
 export function isCold(hold, now) { return Boolean(hold) && now - hold.touched_at > RULES.coldDays * 86400e3; }

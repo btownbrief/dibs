@@ -42,6 +42,9 @@ check "cooldown"                 "$R select dibs_claim('$A','$PLAIN','Amy','one'
 $PSQL -c "update dibs_players set last_claim_at = now() - interval '30 seconds' where token_hash='$HA'" >/dev/null
 check "re-tap own = yours"       "$R select dibs_claim('$A','$PLAIN','Amy','one')" '"result" : "yours", "pts" : 0'
 check "name taken by other"      "$R select dibs_claim('$B','$PLAIN','amy','nne')" "name_taken"
+$PSQL -c "update dibs_players set last_claim_at = now() - interval '30 seconds' where token_hash='$HA'" >/dev/null
+check "claim never renames"       "$R select dibs_claim('$A','$PLAIN','Amy Renamed','one')" '"name" : "Amy"'
+check "bad gps refused"           "$R select dibs_claim('$B','$PLAIN','Ben','nne', 400)" "bad_gps"
 check "locked for others"        "$R select dibs_claim('$B','$PLAIN','Ben','nne')" '"error" : "locked"'
 $PSQL -c "update dibs_holds set touched_at = now() - interval '16 minutes', started_at = now() - interval '16 minutes' where hex_id='$PLAIN'" >/dev/null
 check "steal after lock = +3"    "$R select dibs_claim('$B','$PLAIN','Ben','nne')" '"result" : "took", "pts" : 3'
@@ -60,6 +63,10 @@ $PSQL -c "update dibs_players set last_claim_at = now() - interval '2 hours' whe
 check "landmark fresh"           "$R select dibs_claim('$A','$LM','Amy','one')" '"result" : "fresh"'
 $PSQL -c "update dibs_holds set started_at = now() - interval '2 hours', touched_at = now() - interval '2 hours' where hex_id='$LM'" >/dev/null
 check "points = 6 fresh + 6 fresh + 2h×3 = 18"   "select round(dibs_points('$HA'))" "18"
+# hold cap: 40 blocks held since before the month started → raw 40/h, capped at 30/h × hours this month
+$PSQL -c "insert into dibs_players(token_hash,name,crew) values ('capper','Capper','nne'); insert into dibs_holds(hex_id,token_hash,weight,started_at,touched_at) select id,'capper',1,dibs_month_start()-interval '1 day',now() from dibs_hexes x where hood='nne' and not exists (select 1 from dibs_holds d where d.hex_id=x.id and d.ended_at is null) limit 40;" >/dev/null
+check "hold income capped 30/h"   "select round(dibs_points('capper')) = round(30 * extract(epoch from (now() - dibs_month_start())) / 3600.0)" "t"
+$PSQL -c "delete from dibs_holds where token_hash='capper'; delete from dibs_players where token_hash='capper';" >/dev/null
 check "me shape"                 "$R select dibs_me('$A')::text" '"name" : "Amy", "crew" : "one"'
 check "me held landmark"         "$R select dibs_me('$A')::text" "\"id\" : \"$LM\""
 # bounty: +10 once per day
@@ -87,6 +94,10 @@ if [[ -n "$SECRET" ]]; then
   check "banned cannot claim"    "$R select dibs_claim('$B','$PLAIN','Ben','nne')" "banned"
   check "ban clears holds"       "select count(*) from dibs_holds where token_hash='$HB' and ended_at is null" "0"
   check "mod rename"             "$R select dibs_mod('$SECRET','rename','Amy','Amy B')" '"changed" : 1'
+  check "mod rename validated"   "$R select dibs_mod('$SECRET','rename','Amy B','<img src=x>')" "bad_name"
+  $PSQL -c "update dibs_players set last_claim_at = now() - interval '2 hours' where token_hash='$HA'" >/dev/null
+  check "renamed sticks on claim" "$R select dibs_claim('$A','$PLAIN','Amy','one')" '"name" : "Amy B"'
+  check "banned cannot rename"    "$R select dibs_profile('$B','Benny','nne')" "banned"
   check "mod clear hex"          "$R select dibs_mod('$SECRET','clear','$LM')" '"changed" : 1'
 else
   echo "  (no DIBS_MOD_SECRET in env — mod tests skipped)"

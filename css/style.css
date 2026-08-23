@@ -149,3 +149,5 @@ a { color: var(--accent); }
 .step .n { font-family: var(--serif); font-size: 22px; color: var(--accent); line-height: 1; }
 
 @media (min-width: 720px) { .dock { left: 50%; right: auto; transform: translateX(-50%); width: 460px; } }
+
+@media (prefers-reduced-motion: reduce) { .bounty-icon::before { animation: none; } .toast, .claim { transition: none; } #confetti i { display: none; } }

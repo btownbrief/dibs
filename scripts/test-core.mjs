@@ -76,6 +76,11 @@ test('holdPoints clips to the month and weights landmarks', () => {
   assert.equal(C.holdPoints([{ started_at: T0 - 2 * 3600e3, ended_at: null, weight: 3 }], T0, ms), 6);
   assert.equal(C.holdPoints([{ started_at: ms - 86400e3, ended_at: ms + 3600e3, weight: 1 }], T0, ms), 1); // only the in-month hour counts
   assert.equal(C.holdPoints([{ started_at: ms - 86400e3, ended_at: ms - 3600e3, weight: 1 }], T0, ms), 0);
+  // cap: 100 blocks for 2h = 200 raw → capped at 30/h × hours since month start (well above 60 here), so uncapped…
+  assert.equal(C.holdPoints(Array.from({ length: 100 }, () => ({ started_at: T0 - 2 * 3600e3, ended_at: null, weight: 1 })), T0, ms), 200);
+  // …but 100 blocks held since the 1st is capped at 30/h overall
+  const hrs = (T0 - ms) / 3600e3;
+  assert.equal(C.holdPoints(Array.from({ length: 100 }, () => ({ started_at: ms, ended_at: null, weight: 1 })), T0, ms), 30 * hrs);
 });
 
 test('fake backend walks the same path as the SQL suite', async () => {
@@ -93,6 +98,8 @@ test('fake backend walks the same path as the SQL suite', async () => {
   assert.equal((await call(A, plain, 'Amy', 'one')).error, 'slow_down');
   now += 30e3; r = await call(A, plain, 'Amy', 'one'); assert.equal(r.result, 'yours');
   assert.equal((await call(B, plain, 'amy', 'nne')).error, 'name_taken');
+  now += 30e3; assert.equal((await call(A, plain, 'Amy Renamed', 'one')).name, 'Amy', 'claim never renames');
+  assert.equal((await fb.rpc('dibs_claim', { p_token: B, p_hex: plain, p_name: 'Ben', p_crew: 'nne', p_acc: 400 }).catch((e) => e.code)), 'bad_gps');
   r = await call(B, plain, 'Ben', 'nne'); assert.equal(r.error, 'locked'); assert.equal(r.holder, 'Amy');
   now += 16 * 60e3; r = await call(B, plain, 'Ben', 'nne'); assert.equal(r.result, 'took'); assert.equal(r.pts, 3); assert.equal(r.from, 'Amy');
   let board = await fb.rpc('dibs_board'); assert.ok(board.hexes.some((h) => h.id === plain && h.n === 'Ben' && h.c === 'nne'));

@@ -1,7 +1,7 @@
 // Dibs — in-memory twin of supabase/dibs-SETUP.sql. Used by `?demo=1` (seeded
 // board, nothing saved) and by scripts/test-core.mjs. Same RPC names, same error
 // codes, same rules (via js/core.js). Change the SQL → change this → add a test.
-import { RULES, CREWS, decideClaim, holdPoints, localDate, monthStart, bountyId, isCold, validName, isCrew, clean } from './core.js';
+import { RULES, CREWS, decideClaim, holdPoints, localDate, monthStart, bountyId, isCold, validName, isCrew } from './core.js';
 import { parseId, centerDistance } from './hex.js';
 
 const DEMO_PLAYERS = [
@@ -83,20 +83,24 @@ export class FakeBackend {
     return out;
   }
 
-  rpc_dibs_claim({ p_token, p_hex, p_name, p_crew }) {
+  rpc_dibs_claim({ p_token, p_hex, p_name, p_crew, p_acc }) {
     if (!/^[a-f0-9]{32}$|^demo\d{28}$/.test(p_token || '')) return { error: 'bad_token' };
     this.sweep();
     const now = this.now();
     const hx = this.byId.get(p_hex); if (!hx) return { error: 'off_board' };
-    const v = validName(p_name); if (!v.ok) return { error: 'bad_name' };
+    if (p_acc != null && p_acc > RULES.maxAccuracyM) return { error: 'bad_gps' };
     if (!isCrew(p_crew)) return { error: 'bad_crew' };
-    const other = this.playerByName(v.name); if (other && other.token !== p_token) return { error: 'name_taken' };
     let pl = this.players.get(p_token);
-    if (!pl) { pl = { token: p_token, name: v.name, crew: p_crew, last_claim_at: null, last_hex: null, claims_day: null, claims_today: 0, banned: false, created_at: now }; this.players.set(p_token, pl); }
-    else { pl.name = v.name; pl.crew = p_crew; }
+    if (pl) {
+      if (pl.banned) return { error: 'banned' };
+      pl.crew = p_crew; // the server's name is the name; renames go through dibs_profile
+    } else {
+      const v = validName(p_name); if (!v.ok) return { error: 'bad_name' };
+      if (this.playerByName(v.name)) return { error: 'name_taken' };
+      pl = { token: p_token, name: v.name, crew: p_crew, last_claim_at: null, last_hex: null, claims_day: null, claims_today: 0, banned: false, created_at: now }; this.players.set(p_token, pl);
+    }
     const today = localDate(now);
     if (pl.claims_day !== today) { pl.claims_day = today; pl.claims_today = 0; }
-    if (pl.banned) return { error: 'banned' };
     if (pl.last_claim_at && now - pl.last_claim_at < RULES.cooldownSec * 1e3) return { error: 'slow_down' };
     if (pl.claims_today >= RULES.dailyCap) return { error: 'daily_cap' };
     if (pl.last_hex && pl.last_hex !== p_hex && pl.last_claim_at) {
@@ -118,19 +122,19 @@ export class FakeBackend {
     // keep holder name/crew current on open holds
     for (const h of this.holds) if (h.token === p_token && !h.ended_at) { h.name = pl.name; h.crew = pl.crew; }
     pl.last_claim_at = now; pl.last_hex = p_hex; pl.claims_today += 1;
-    return { ok: true, result: d.result, pts: d.pts, bounty: d.bounty, hex: { id: hx.id, name: hx.name, weight: hx.lm ? 3 : 1, hood: hx.hood },
+    return { ok: true, result: d.result, pts: d.pts, bounty: d.bounty, name: pl.name, crew: pl.crew, hex: { id: hx.id, name: hx.name, weight: hx.lm ? 3 : 1, hood: hx.hood },
       from, from_crew, held: this.holds.filter((h) => h.token === p_token && !h.ended_at).length, pts_month: Math.round(this.points(p_token) * 10) / 10 };
   }
 
   rpc_dibs_profile({ p_token, p_name, p_crew }) {
     if (!/^[a-f0-9]{32}$|^demo\d{28}$/.test(p_token || '')) return { error: 'bad_token' };
+    if (this.players.get(p_token)?.banned) return { error: 'banned' };
     const v = validName(p_name); if (!v.ok) return { error: 'bad_name' };
     if (!isCrew(p_crew)) return { error: 'bad_crew' };
     const other = this.playerByName(v.name); if (other && other.token !== p_token) return { error: 'name_taken' };
     let pl = this.players.get(p_token);
     if (!pl) { pl = { token: p_token, name: v.name, crew: p_crew, last_claim_at: null, last_hex: null, claims_day: null, claims_today: 0, banned: false, created_at: this.now() }; this.players.set(p_token, pl); }
     else { pl.name = v.name; pl.crew = p_crew; for (const h of this.holds) if (h.token === p_token && !h.ended_at) { h.name = pl.name; h.crew = pl.crew; } }
-    if (pl.banned) return { error: 'banned' };
     return { ok: true, name: pl.name, crew: pl.crew };
   }
 
@@ -155,7 +159,7 @@ export class FakeBackend {
       players: [...this.players.values()].filter((p) => p.crew === c.code && !p.banned && (p.last_claim_at || 0) >= ms).length }));
     const recent = this.bonus.filter((b) => b.kind === 'took' || b.kind === 'fresh').sort((a, b) => b.at - a.at).slice(0, 40).map((b) => {
       const p = this.players.get(b.token), fp = b.from ? this.players.get(b.from) : null;
-      return { hex: b.hex, hex_name: this.byId.get(b.hex)?.name, name: p?.name, crew: p?.crew, kind: b.kind, from: fp?.name || null, from_crew: fp?.crew || null, at: b.at };
+      return { hex: b.hex, hex_name: this.byId.get(b.hex)?.name, name: p?.name, crew: p?.crew, kind: b.kind, from: fp?.name || null, from_crew: fp?.crew || null, at: Math.floor(b.at / 900e3) * 900e3 };
     });
     return { ts: now, month: localDate(now).slice(0, 7), players, crews, recent };
   }
@@ -177,7 +181,7 @@ export class FakeBackend {
     if (p_secret !== 'demo') return { error: 'nope' };
     if (p_action === 'players') return [...this.players.values()].map((p) => ({ name: p.name, crew: p.crew, banned: p.banned, pts: Math.round(this.points(p.token) * 10) / 10, held: this.holds.filter((h) => h.token === p.token && !h.ended_at).length, last: p.last_claim_at ? new Date(p.last_claim_at).toISOString() : null, created: new Date(p.created_at).toISOString() }));
     if (p_action === 'ban' || p_action === 'unban') { const p = this.playerByName(p_a); if (!p) return { ok: true, changed: 0 }; p.banned = p_action === 'ban'; if (p.banned) for (const h of this.holds) if (h.token === p.token && !h.ended_at) { h.ended_at = this.now(); h.end_reason = 'cleared'; } return { ok: true, changed: 1 }; }
-    if (p_action === 'rename') { if (this.playerByName(p_b)) return { error: 'name_taken' }; const p = this.playerByName(p_a); if (!p) return { ok: true, changed: 0 }; p.name = clean(p_b, 20); return { ok: true, changed: 1 }; }
+    if (p_action === 'rename') { const v = validName(p_b); if (!v.ok) return { error: 'bad_name' }; if (this.playerByName(v.name)) return { error: 'name_taken' }; const p = this.playerByName(p_a); if (!p) return { ok: true, changed: 0 }; p.name = v.name; for (const h of this.holds) if (h.token === p.token && !h.ended_at) h.name = v.name; return { ok: true, changed: 1 }; }
     if (p_action === 'clear') { let n = 0; for (const h of this.holds) if (h.hex === p_a && !h.ended_at) { h.ended_at = this.now(); h.end_reason = 'cleared'; n++; } return { ok: true, changed: n }; }
     return { error: 'bad_action' };
   }

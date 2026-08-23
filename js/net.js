@@ -33,6 +33,11 @@ export function remembered() {
 export function remember(name, crew) {
   try { localStorage.setItem(KEY.name, name); localStorage.setItem(KEY.crew, crew); } catch { /* private mode */ }
 }
+/** localStorage that never throws (iOS "Block All Cookies", some webviews) */
+export const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
+};
 
 async function rpc(fn, args = {}) {
   let res;
@@ -74,6 +79,8 @@ export function explain(err) {
     case 'bad_crew': return 'Pick a crew first.';
     case 'banned': return "This device has been benched. Email hello@btownbrief.com if that's a mistake.";
     case 'off_board': return "You're off the board — Dibs covers Burlington, Winooski, and the edges.";
+    case 'bad_gps': return 'Your GPS fix is too fuzzy to tell which block you’re in. Step outside and re-find yourself.';
+    case 'stale': return 'That location is a few minutes old — tap Re-find me first.';
     case 'bad_token': return 'Something is off with this browser. Clearing site data will give you a fresh start.';
     default: return "Something didn't save. Try again in a moment.";
   }

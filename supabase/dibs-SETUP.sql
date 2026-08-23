@@ -13,7 +13,8 @@
 --   take a held block +3 · take a fresh/cold block +6 · hold = 1 pt/hour × weight
 --   (landmarks weight 3) · bounty block +10 once/player/day · 15-min lock after a
 --   take · untouched 7 days = cold · 20 s cooldown · 12 m/s teleport guard ·
---   200 claims/day · points are per calendar month (America/New_York).
+--   200 claims/day · hold income capped at 30 pts/hour · points are per calendar
+--   month (America/New_York). Accuracy > 150 m is refused (bad_gps).
 --
 -- Threat model: a determined cheater can spoof GPS or script the RPC; rate
 -- limits, the speed guard, the daily cap, unique names and a small public
@@ -134,12 +135,15 @@ language sql as $$
   where ended_at is null and touched_at < now() - interval '7 days'
 $$;
 
+-- hold income is capped at 30 pts/hour overall (≈ your best 30 plain blocks) so one
+-- hard-biking player can't run away with the month; takes/bounties are uncapped.
 create or replace function dibs_points(h text) returns numeric
 language sql stable as $$
-  select coalesce((
-    select sum(extract(epoch from (coalesce(ended_at, now()) - greatest(started_at, dibs_month_start()))) / 3600.0 * weight)
-    from dibs_holds where token_hash = h and coalesce(ended_at, now()) > dibs_month_start()
-  ), 0) + coalesce((select sum(pts) from dibs_bonus where token_hash = h and at >= dibs_month_start()), 0)
+  select least(coalesce((
+      select sum(extract(epoch from (coalesce(ended_at, now()) - greatest(started_at, dibs_month_start()))) / 3600.0 * weight)
+      from dibs_holds where token_hash = h and coalesce(ended_at, now()) > dibs_month_start()
+    ), 0), 30 * extract(epoch from (now() - dibs_month_start())) / 3600.0)
+    + coalesce((select sum(pts) from dibs_bonus where token_hash = h and at >= dibs_month_start()), 0)
 $$;
 
 create or replace function dibs_valid_crew(p text) returns boolean
@@ -151,7 +155,7 @@ returns json language plpgsql security definer set search_path = public as $$
 declare
   h text; hx dibs_hexes; pl dibs_players; hold dibs_holds; nm text; today date;
   res text; pts int := 0; bounty boolean := false; b_id text; from_name text; from_crew text;
-  dist double precision; secs double precision; a record; b record; lock_until timestamptz;
+  dist double precision; secs double precision; a record; b record; cname text;
 begin
   h := dibs_check_token(p_token);
   perform pg_advisory_xact_lock(hashtext('dibs|' || h));
@@ -159,19 +163,21 @@ begin
 
   select * into hx from dibs_hexes where id = p_hex;
   if not found then return json_build_object('error', 'off_board'); end if;
-
-  nm := dibs_clean(p_name, 20);
-  if length(nm) < 2 or nm !~ '^[[:alnum:]][[:alnum:] .''\-]*$' then return json_build_object('error', 'bad_name'); end if;
+  if p_acc is not null and p_acc > 150 then return json_build_object('error', 'bad_gps'); end if;
   if not dibs_valid_crew(p_crew) then return json_build_object('error', 'bad_crew'); end if;
-  if exists (select 1 from dibs_players where lower(name) = lower(nm) and token_hash <> h) then
-    return json_build_object('error', 'name_taken');
+
+  select * into pl from dibs_players where token_hash = h for update;
+  if found then
+    -- existing player: the server's name is the name (renames go through dibs_profile / the back room)
+    if pl.banned then return json_build_object('error', 'banned'); end if;
+    if pl.crew <> p_crew then update dibs_players set crew = p_crew where token_hash = h; pl.crew := p_crew; end if;
+  else
+    nm := dibs_clean(p_name, 20);
+    if length(nm) < 2 or nm !~ '^[[:alnum:]][[:alnum:] .''\-]*$' then return json_build_object('error', 'bad_name'); end if;
+    if exists (select 1 from dibs_players where lower(name) = lower(nm)) then return json_build_object('error', 'name_taken'); end if;
+    insert into dibs_players (token_hash, name, crew) values (h, nm, p_crew) returning * into pl;
   end if;
 
-  insert into dibs_players (token_hash, name, crew) values (h, nm, p_crew)
-  on conflict (token_hash) do update set name = excluded.name, crew = excluded.crew;
-  select * into pl from dibs_players where token_hash = h for update;
-
-  if pl.banned then return json_build_object('error', 'banned'); end if;
   if pl.last_claim_at is not null and pl.last_claim_at > now() - interval '20 seconds' then
     return json_build_object('error', 'slow_down');
   end if;
@@ -217,12 +223,17 @@ begin
   where token_hash = h;
 
   return json_build_object('ok', true, 'result', res, 'pts', pts, 'bounty', bounty,
+    'name', pl.name, 'crew', pl.crew,
     'hex', json_build_object('id', hx.id, 'name', hx.name, 'weight', hx.weight, 'hood', hx.hood),
     'from', from_name, 'from_crew', from_crew,
     'held', (select count(*) from dibs_holds where token_hash = h and ended_at is null),
     'pts_month', round(dibs_points(h), 1));
+exception when unique_violation then
+  get stacked diagnostics cname = constraint_name;
+  -- two phones, same instant: same fresh block → the other one won; same new name → name_taken
+  if cname = 'dibs_players_name_key' then return json_build_object('error', 'name_taken'); end if;
+  return json_build_object('error', 'locked');
 end $$;
-
 
 -- set / change name + crew without claiming (same validation as dibs_claim)
 create or replace function dibs_profile(p_token text, p_name text, p_crew text)
@@ -230,6 +241,8 @@ returns json language plpgsql security definer set search_path = public as $$
 declare h text; nm text; pl dibs_players;
 begin
   h := dibs_check_token(p_token);
+  perform pg_advisory_xact_lock(hashtext('dibs|' || h));
+  if exists (select 1 from dibs_players where token_hash = h and banned) then return json_build_object('error', 'banned'); end if;
   nm := dibs_clean(p_name, 20);
   if length(nm) < 2 or nm !~ '^[[:alnum:]][[:alnum:] .''\-]*$' then return json_build_object('error', 'bad_name'); end if;
   if not dibs_valid_crew(p_crew) then return json_build_object('error', 'bad_crew'); end if;
@@ -239,8 +252,9 @@ begin
   insert into dibs_players (token_hash, name, crew) values (h, nm, p_crew)
   on conflict (token_hash) do update set name = excluded.name, crew = excluded.crew;
   select * into pl from dibs_players where token_hash = h;
-  if pl.banned then return json_build_object('error', 'banned'); end if;
   return json_build_object('ok', true, 'name', pl.name, 'crew', pl.crew);
+exception when unique_violation then
+  return json_build_object('error', 'name_taken');
 end $$;
 
 -- ---------------------------------------------------------------- reads
@@ -290,7 +304,7 @@ begin
       ) c), '[]'::json),
     'recent', coalesce((
       select json_agg(json_build_object('hex', b.hex_id, 'hex_name', x.name, 'name', p.name, 'crew', p.crew, 'kind', b.kind,
-                                        'from', fp.name, 'from_crew', fp.crew, 'at', extract(epoch from b.at) * 1000) order by b.at desc)
+                                        'from', fp.name, 'from_crew', fp.crew, 'at', floor(extract(epoch from b.at) / 900) * 900000) order by b.at desc)
       from (select * from dibs_bonus where kind in ('took','fresh') order by at desc limit 40) b
       join dibs_players p on p.token_hash = b.token_hash
       join dibs_hexes x on x.id = b.hex_id
@@ -324,8 +338,9 @@ create or replace function dibs_mod_ok(p_secret text) returns boolean
 language plpgsql security definer set search_path = public as $$
 begin
   delete from dibs_mod_fails where at < now() - interval '15 minutes';
-  if (select count(*) from dibs_mod_fails) >= 20 then return false; end if;
   if p_secret is null or length(p_secret) < 8 then return false; end if;
+  -- throttle guessing (the anon key is public) without letting guessers lock the real moderator out
+  if (select count(*) from dibs_mod_fails) >= 50 then return false; end if;
   if extensions.crypt(p_secret, dibs_mod_hash()) = dibs_mod_hash() then return true; end if;
   insert into dibs_mod_fails default values;
   return false;
@@ -333,7 +348,7 @@ end $$;
 
 create or replace function dibs_mod(p_secret text, p_action text, p_a text default null, p_b text default null)
 returns json language plpgsql security definer set search_path = public as $$
-declare n int;
+declare n int; nm text;
 begin
   if not dibs_mod_ok(p_secret) then return json_build_object('error', 'nope'); end if;
   if p_action = 'players' then
@@ -347,8 +362,10 @@ begin
     end if;
     return json_build_object('ok', true, 'changed', n);
   elsif p_action = 'rename' then
-    if exists (select 1 from dibs_players where lower(name) = lower(p_b)) then return json_build_object('error', 'name_taken'); end if;
-    update dibs_players set name = dibs_clean(p_b, 20) where lower(name) = lower(p_a); get diagnostics n = row_count;
+    nm := dibs_clean(p_b, 20);
+    if length(nm) < 2 or nm !~ '^[[:alnum:]][[:alnum:] .''\-]*$' then return json_build_object('error', 'bad_name'); end if;
+    if exists (select 1 from dibs_players where lower(name) = lower(nm)) then return json_build_object('error', 'name_taken'); end if;
+    update dibs_players set name = nm where lower(name) = lower(p_a); get diagnostics n = row_count;
     return json_build_object('ok', true, 'changed', n);
   elsif p_action = 'clear' then
     update dibs_holds set ended_at = now(), end_reason = 'cleared' where ended_at is null and hex_id = p_a; get diagnostics n = row_count;

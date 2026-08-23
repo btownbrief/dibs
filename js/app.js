@@ -4,7 +4,7 @@
 import { APP, RULES, CREWS, CREW, HOOD_NAME, validName, accuracyGrade, betterFix, localDate, bountyId, sinceText, fmtPts, lockedUntil } from './core.js';
 import { idAt, parseId, centerLatLng } from './hex.js';
 import { createMap } from './map.js';
-import { backend, token, remembered, remember, explain, DEMO, TEST } from './net.js';
+import { backend, token, remembered, remember, store, explain, DEMO, TEST } from './net.js';
 
 const $ = (s) => document.querySelector(s);
 const qs = new URLSearchParams(location.search);
@@ -18,7 +18,7 @@ const S = {
   board: null, boardAt: 0, bounty: null,
   name: '', crew: '', me: null,            // me = last dibs_me payload
   pos: null, fix: null, watchId: null, locating: false, fixAt: 0, best: null, bestTimer: null,
-  hereId: null, busy: false, lastClaimAt: 0, wantWatch: false,
+  hereId: null, busy: false, lastClaimAt: 0, wantWatch: false, backendDown: null,
 };
 
 // ---------------------------------------------------------------- boot
@@ -39,6 +39,7 @@ async function boot() {
   for (const d of document.querySelectorAll('dialog.sheet')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
 
   await refreshBoard();
+  if (S.name) api.rpc('dibs_me', { p_token: TOKEN }).then((me) => { if (me?.name && me.name !== S.name) { S.name = me.name; remember(S.name, S.crew); S.map.setMyName(S.name); renderHere(); } S.me = me; if (me?.bounty_done) $('#bounty').classList.add('done'); }).catch(() => {});
   setInterval(() => { if (document.visibilityState === 'visible') refreshBoard(); }, 60e3);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refreshBoard(); if (S.wantWatch) startLocating(true); } else stopLocating(); });
 
@@ -52,7 +53,7 @@ async function boot() {
   const at = qs.get('at');
   if (at) { const p = parseAt(at); if (p) onPosition({ ...p, accuracy: 12, ts: Date.now() }, true); }
 
-  if (!localStorage.getItem('dibs-welcomed') && !at) openWelcome(); else if (!at && !DEMO && !TEST) startLocating(false);
+  if (!store.get('dibs-welcomed') && !at) openWelcome(); else if (!at && !DEMO && !TEST) startLocating(false);
   if (!TEST && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   new ResizeObserver(() => document.documentElement.style.setProperty('--dock-h', $('.dock').offsetHeight + 'px')).observe($('.dock'));
   window.__dibs = S; // for the playtest
@@ -75,13 +76,12 @@ function applyCrewTheme() {
 async function refreshBoard() {
   try {
     const b = await api.rpc('dibs_board');
-    S.board = b; S.boardAt = Date.now(); S.map.setBoard(b);
+    S.board = b; S.boardAt = Date.now(); S.backendDown = null; S.map.setBoard(b);
     if (b.bounty) setBounty(b.bounty);
     renderHere();
-    $('#claim').dataset.ready = '1';
   } catch (e) {
-    if (e.code === 'not_ready') { $('#claim').dataset.ready = '0'; }
-    // offline / not ready: keep whatever we have; the dock copy handles it
+    S.backendDown = e.code === 'not_ready' ? 'not_ready' : (S.board ? null : 'offline');
+    if (S.backendDown) { $('#here-status').textContent = explain(S.backendDown); renderClaimButton(); }
   }
 }
 function setBounty(id) {
@@ -105,11 +105,10 @@ function startLocating(force) {
     if (S.locating) { S.best = betterFix(S.best, fix); if (fix.accuracy <= 25) { clearTimeout(S.bestTimer); S.locating = false; adopt(fix); } else setGps(accuracyGrade(fix.accuracy), `Finding you… ±${Math.round(fix.accuracy)} m`); }
     else adopt(fix);
   }, (err) => {
-    clearTimeout(S.bestTimer); S.locating = false; S.watchId = null;
-    if (err.code === 1) setGps('bad', 'Location is off for this site — allow it in Settings › Safari › Location.');
-    else if (err.code === 3 && !S.pos) setGps('bad', 'Still looking for a GPS fix — step outside and try again.');
-    else setGps('bad', 'Could not get a location.');
-    renderClaimButton();
+    // code 1 = denied: the watch is dead, clear it. Codes 2/3 are transient (tunnel, cold start):
+    // per spec the watch keeps running, so leave it alone and just say so.
+    if (err.code === 1) { clearTimeout(S.bestTimer); S.locating = false; stopLocating(); S.wantWatch = false; setGps('bad', 'Location is off for this site — allow it in Settings › Safari › Location.'); renderClaimButton(); return; }
+    if (!S.pos) setGps('bad', err.code === 3 ? 'Still looking for a GPS fix — step outside and try again.' : 'Could not get a location yet — hang on.');
   }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 25000 });
 }
 function stopLocating() { if (S.watchId != null) { navigator.geolocation.clearWatch(S.watchId); S.watchId = null; } clearTimeout(S.bestTimer); }
@@ -132,21 +131,25 @@ function onPosition(fix, synthetic) {
 function setGps(grade, text) { const el = $('#gps'); el.className = 'g ' + grade; el.textContent = text; }
 
 // ---------------------------------------------------------------- dock
+const setHtml = (el, html) => { if (el.innerHTML !== html) el.innerHTML = html; };
 function renderHere() {
   const eyebrow = $('#here-eyebrow'), name = $('#here-name'), status = $('#here-status');
+  if (S.backendDown && !S.board && !S.pos) { setHtml(eyebrow, 'Your block'); setHtml(name, 'Where are you?'); setHtml(status, esc(explain(S.backendDown))); return; }
   if (!S.pos) { eyebrow.textContent = 'Your block'; name.textContent = 'Where are you?'; status.innerHTML = 'Tap <b>Find me</b> and we’ll work out which block you’re standing in.'; return; }
   if (!S.hereId) { eyebrow.textContent = 'Off the board'; name.textContent = 'Not a block'; status.textContent = 'Dibs covers Burlington, Winooski and the edges. Head back toward town.'; return; }
   const h = S.byId.get(S.hereId); const hold = holdOf(S.hereId); const now = Date.now();
-  eyebrow.innerHTML = `You’re in <span class="tag">${HOOD_NAME[h.hood] || h.hood}</span>${h.lm ? '<span class="tag">Landmark · 3 pts/hr</span>' : ''}${S.bounty === h.id ? '<span class="tag">★ Today’s bounty</span>' : ''}`;
-  name.innerHTML = `${esc(h.name)}${h.lm ? '<span class="lm">★</span>' : ''}`;
-  if (!hold) status.innerHTML = `<span class="dot"></span>Nobody’s called it. <b>First tracks +${RULES.freshPts}.</b>`;
-  else if (isMine(hold)) status.innerHTML = `<span class="dot" style="--dotc:${CREW[hold.c]?.color}"></span>Yours since ${sinceText(hold.s, now)}. Warm for ${daysLeft(hold.t, now)}.`;
+  if (S.backendDown && !S.board) { setHtml(eyebrow, `You’re in <span class="tag">${HOOD_NAME[h.hood] || h.hood}</span>`); setHtml(name, `${esc(h.name)}${h.lm ? '<span class="lm">★</span>' : ''}`); setHtml(status, esc(explain(S.backendDown))); return; }
+  setHtml(eyebrow, `You’re in <span class="tag">${HOOD_NAME[h.hood] || h.hood}</span>${h.lm ? '<span class="tag">Landmark · 3 pts/hr</span>' : ''}${S.bounty === h.id ? '<span class="tag">★ Today’s bounty</span>' : ''}`);
+  setHtml(name, `${esc(h.name)}${h.lm ? '<span class="lm">★</span>' : ''}`);
+  if (!hold) setHtml(status, `<span class="dot"></span>Nobody’s called it. <b>First tracks +${RULES.freshPts}.</b>`);
+  else if (isMine(hold)) setHtml(status, `<span class="dot" style="--dotc:${CREW[hold.c]?.color}"></span>Yours since ${sinceText(hold.s, now)}. Warm for ${daysLeft(hold.t, now)}.`);
   else {
     const lockLeft = lockedUntil({ touched_at: hold.t }) - now;
-    status.innerHTML = `<span class="dot" style="--dotc:${CREW[hold.c]?.color}"></span>Held by <b>${esc(hold.n)}</b> · ${CREW[hold.c]?.short || ''} · since ${sinceText(hold.s, now)}${lockLeft > 0 ? ` · 🔒 ${Math.ceil(lockLeft / 60e3)} min` : ` · <b>take it +${RULES.takePts}</b>`}`;
+    setHtml(status, `<span class="dot" style="--dotc:${CREW[hold.c]?.color}"></span>Held by <b>${esc(hold.n)}</b> · ${CREW[hold.c]?.short || ''} · since ${sinceText(hold.s, now)}${lockLeft > 0 ? ` · 🔒 ${Math.ceil(lockLeft / 60e3)} min` : ` · <b>take it +${RULES.takePts}</b>`}`);
   }
 }
 function daysLeft(touched, now) { const left = touched + RULES.coldDays * 86400e3 - now; const d = Math.round(left / 86400e3); return d >= 1 ? `${d} more day${d === 1 ? '' : 's'}` : `${Math.max(1, Math.round(left / 3600e3))} more hours`; }
+function isStale() { return Boolean(S.pos) && Date.now() - S.fixAt > 120e3 && !DEMO && !qs.get('at'); }
 function renderClaimButton() {
   const b = $('#claim'); b.classList.remove('quiet', 'busy'); b.disabled = false;
   if (S.busy) { b.textContent = 'Calling…'; b.classList.add('busy'); b.disabled = true; return; }
@@ -154,6 +157,7 @@ function renderClaimButton() {
   if (!S.hereId) { b.textContent = 'Off the board'; b.disabled = true; return; }
   const g = accuracyGrade(S.pos.accuracy);
   if (g === 'bad') { b.textContent = 'Step outside for GPS'; b.disabled = true; return; }
+  if (isStale()) { b.textContent = 'Re-find me'; b.classList.add('quiet'); return; }
   const hold = holdOf(S.hereId);
   if (isMine(hold)) { b.textContent = Date.now() - hold.t < RULES.refreshHours * 3600e3 ? 'Still yours ✓' : 'Warm it up'; b.classList.add('quiet'); return; }
   if (hold && lockedUntil({ touched_at: hold.t }) > Date.now()) { b.textContent = `Locked · ${Math.ceil((lockedUntil({ touched_at: hold.t }) - Date.now()) / 60e3)} min`; b.disabled = true; return; }
@@ -161,7 +165,7 @@ function renderClaimButton() {
 }
 setInterval(() => {
   if (!S.pos) return;
-  const age = Date.now() - S.fixAt; const stale = age > 120e3 && !DEMO && !qs.get('at');
+  const age = Date.now() - S.fixAt; const stale = isStale();
   S.map.setMe(S.pos, stale);
   if (stale) setGps('fuzzy', `GPS ±${Math.round(S.pos.accuracy)} m · ${Math.round(age / 60e3)} min old — tap Re-find me`);
   renderHere(); renderClaimButton();
@@ -169,7 +173,7 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- claim
 async function onClaimButton() {
-  if (!S.pos) { startLocating(true); return; }
+  if (!S.pos || isStale()) { startLocating(true); return; }
   if (!S.hereId || S.busy) return;
   if (!S.name || !S.crew) { openWelcome(true); return; }
   await claim(S.hereId);
@@ -179,6 +183,7 @@ async function claim(id) {
   try {
     const r = await api.rpc('dibs_claim', { p_token: TOKEN, p_hex: id, p_name: S.name, p_crew: S.crew, p_acc: Math.round(S.pos?.accuracy || 0) });
     S.lastClaimAt = Date.now();
+    if (r.name && r.name !== S.name) { S.name = r.name; remember(S.name, S.crew); S.map.setMyName(S.name); } // the server's name is the name
     // update the local board immediately
     const now = Date.now(); const prev = holdOf(id);
     S.board ||= { hexes: [] };
@@ -225,7 +230,7 @@ function openWelcome(forClaim = false) {
         <div class="field"><label>Your crew — where’s home?</label><div class="crews">${crewsHtml}</div></div>
         <div class="err" id="onboard-err"></div>
         <button class="btn crew" type="submit">${forClaim ? 'Save and call dibs' : 'Find my block'}</button>
-        <p class="meta">Your name shows on blocks you hold — that’s the game. Your location never leaves your phone; only the block’s name does. No account, no email.</p>
+        <p class="meta">Your name shows on the blocks you hold and in the takes feed — that’s the game. Your coordinates never leave your phone; only the block does. No account, no email.</p>
       </form>
     </div>`);
   let crew = S.crew;
@@ -244,7 +249,7 @@ function openWelcome(forClaim = false) {
       // back end not ready: keep going locally; claims will explain themselves
     }
     S.name = v.name; S.crew = crew; remember(S.name, S.crew); applyCrewTheme(); S.map.setMyName(S.name);
-    localStorage.setItem('dibs-welcomed', '1');
+    store.set('dibs-welcomed', '1');
     d.close(); renderHere(); renderClaimButton();
     if (forClaim && S.hereId) claim(S.hereId); else if (!S.pos) startLocating(true);
   });
@@ -274,7 +279,7 @@ async function openMe() {
   if (!S.name) { openWelcome(false); return; }
   const d = sheet('#sheet-me', `<h2>${esc(S.name)} <small class="meta">· ${CREW[S.crew]?.name || ''}</small></h2><div id="me-body"><div class="empty">Loading…</div></div>`);
   let me = null;
-  try { me = await api.rpc('dibs_me', { p_token: TOKEN }); S.me = me; } catch (e) { d.querySelector('#me-body').innerHTML = `<div class="empty">${esc(explain(e))}</div>${settingsHtml()}`; wireSettings(d); return; }
+  try { me = await api.rpc('dibs_me', { p_token: TOKEN }); S.me = me; if (me.name && me.name !== S.name) { S.name = me.name; remember(S.name, S.crew); S.map.setMyName(S.name); d.querySelector('h2').firstChild.textContent = S.name + ' '; } } catch (e) { d.querySelector('#me-body').innerHTML = `<div class="empty">${esc(explain(e))}</div>${settingsHtml()}`; wireSettings(d); return; }
   const now = Date.now();
   const held = me.held || [];
   d.querySelector('#me-body').innerHTML = `
@@ -287,14 +292,14 @@ async function openMe() {
     <h3>How it works</h3>
     <ul class="rules">
       <li><b>Call dibs</b> on the block you’re standing in. Fresh block +${RULES.freshPts}, someone else’s +${RULES.takePts}.</li>
-      <li><b>Holding pays.</b> 1 pt an hour per block. Landmarks (★) pay ${RULES.landmarkWeight}.</li>
+      <li><b>Holding pays.</b> 1 pt an hour per block, landmarks (★) pay ${RULES.landmarkWeight} — up to ${RULES.maxHoldRate} an hour total, so nobody wins by hoarding.</li>
       <li><b>Today’s bounty</b> (★ pulsing on the map) pays +${RULES.bountyPts} to everyone who taps it today.</li>
       <li><b>Locks:</b> a fresh take can’t be stolen for ${RULES.lockMin} minutes. No ping-pong.</li>
       <li><b>Cold:</b> a block you haven’t touched in ${RULES.coldDays} days goes back to neutral. Re-tap to warm it.</li>
       <li><b>Monthly:</b> points reset on the 1st; the newsletter crowns the month. Blocks carry over.</li>
       <li><b>On foot or bike.</b> Claims that move faster than 12 m/s get bounced. Max 200 a day.</li>
     </ul>
-    <p class="meta">Privacy: your phone works out the block; only the block’s name is sent. Your name and crew show on the blocks you hold — that’s the game. No account; this browser is your identity (clear site data = new player). A Btown Brief game · <a href="https://www.btownbrief.com">btownbrief.com</a> · <a href="https://play.btownbrief.com/">more games</a></p>`;
+    <p class="meta">Privacy: your phone works out the block; only the block’s id is sent, never your coordinates. Your name and crew show on the blocks you hold and in the recent-takes feed (rounded to 15 minutes) — that’s the game, so play under a name you’re happy to see on a map. No account; this browser is your identity (clear site data = new player). A Btown Brief game · <a href="https://www.btownbrief.com">btownbrief.com</a> · <a href="https://play.btownbrief.com/">more games</a></p>`;
   d.querySelectorAll('[data-hex]').forEach((li) => li.addEventListener('click', () => { d.close(); S.map.flyTo(li.dataset.hex, 16); openHexSheet(li.dataset.hex); }));
   d.querySelector('#share').addEventListener('click', () => share(me));
   wireSettings(d);
@@ -344,6 +349,7 @@ let toastTimer = null;
 function toast(html, kind = '', ms = 2600) { const t = $('#toast'); t.className = 'toast ' + kind; t.innerHTML = html; requestAnimationFrame(() => t.classList.add('show')); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms); }
 function showHint(text) { const h = $('#hint'); h.textContent = text; h.hidden = false; setTimeout(() => { h.hidden = true; }, 6000); }
 function confetti(color) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const box = $('#confetti'); const colors = [color || '#2E7D8A', '#FBF8F2', '#13243B', '#FFD166'];
   for (let i = 0; i < 36; i++) { const el = document.createElement('i'); el.style.left = `${Math.random() * 100}vw`; el.style.background = colors[i % colors.length]; el.style.animationDuration = `${1.2 + Math.random() * 1.2}s`; el.style.animationDelay = `${Math.random() * 0.3}s`; el.style.transform = `rotate(${Math.random() * 360}deg)`; box.appendChild(el); setTimeout(() => el.remove(), 2800); }
 }
