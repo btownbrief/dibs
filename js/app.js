@@ -46,12 +46,14 @@ async function boot() {
   // local bounty fallback so the pill works even before the board answers
   if (!S.bounty) setBounty(bountyId(localDate(Date.now()), S.hexes.filter((h) => h.lm).map((h) => h.id)));
 
-  if (DEMO) {
-    S.map.setTapToMove((ll) => { onPosition({ lat: ll.lat, lng: ll.lng, accuracy: 14, ts: Date.now() }, true); });
-    showHint('Demo: tap the map to stand somewhere. Nothing is saved.');
-  }
   const at = qs.get('at');
   if (at) { const p = parseAt(at); if (p) onPosition({ ...p, accuracy: 12, ts: Date.now() }, true); }
+  if (DEMO) {
+    // demo never touches location services: start you on Church Street, tap the map to move
+    S.map.setTapToMove((ll) => { onPosition({ lat: ll.lat, lng: ll.lng, accuracy: 14, ts: Date.now() }, true); showHint('Demo: you moved. Tap the map to stand somewhere else.'); });
+    if (!S.pos) onPosition({ ...parseAt('church'), accuracy: 14, ts: Date.now() }, true);
+    showHint('Demo: tap anywhere on the map to stand there. Nothing is saved.');
+  }
 
   if (!store.get('dibs-welcomed') && !at) openWelcome(); else if (!at && !DEMO && !TEST) startLocating(false);
   if (!TEST && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -94,6 +96,7 @@ function isMine(h) { return Boolean(h && S.name && h.n === S.name); }
 
 // ---------------------------------------------------------------- location
 function startLocating(force) {
+  if (DEMO) return;
   if (!('geolocation' in navigator)) { setGps('none', 'No GPS in this browser'); return; }
   if (S.watchId != null && !force) return;
   stopLocating(); S.wantWatch = true;
@@ -173,6 +176,7 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- claim
 async function onClaimButton() {
+  if (DEMO && !S.pos) { showHint('Demo: tap anywhere on the map to stand there.'); return; }
   if (!S.pos || isStale()) { startLocating(true); return; }
   if (!S.hereId || S.busy) return;
   if (!S.name || !S.crew) { openWelcome(true); return; }
@@ -229,7 +233,7 @@ function openWelcome(forClaim = false) {
         <div class="field"><label for="nm">Your name on the map</label><input id="nm" name="nm" maxlength="${RULES.nameMax}" autocomplete="nickname" placeholder="Maya, Sam K, BikePathPete…" value="${esc(S.name)}" required></div>
         <div class="field"><label>Your crew — where’s home?</label><div class="crews">${crewsHtml}</div></div>
         <div class="err" id="onboard-err"></div>
-        <button class="btn crew" type="submit">${forClaim ? 'Save and call dibs' : 'Find my block'}</button>
+        <button class="btn crew" type="submit">${forClaim ? 'Save and call dibs' : DEMO ? 'Start the demo' : 'Find my block'}</button>
         <p class="meta">Your name shows on the blocks you hold and in the takes feed — that’s the game. Your coordinates never leave your phone; only the block does. No account, no email.</p>
       </form>
     </div>`);
@@ -251,7 +255,7 @@ function openWelcome(forClaim = false) {
     S.name = v.name; S.crew = crew; remember(S.name, S.crew); applyCrewTheme(); S.map.setMyName(S.name);
     store.set('dibs-welcomed', '1');
     d.close(); renderHere(); renderClaimButton();
-    if (forClaim && S.hereId) claim(S.hereId); else if (!S.pos) startLocating(true);
+    if (forClaim && S.hereId) claim(S.hereId); else if (!S.pos && !DEMO) startLocating(true);
   });
 }
 

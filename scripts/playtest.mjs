@@ -44,6 +44,8 @@ await pg.click('.crew-btn[data-crew="one"]');
 await pg.click('#onboard .btn');
 await pg.waitForTimeout(1200);
 must(await pg.locator('#sheet-welcome[open]').count() === 0, 'welcome closes after save');
+must(/Church Street/.test(await pg.textContent('#here-name')), 'demo starts you on Church Street without asking for location');
+must(await pg.evaluate(() => window.__dibs.watchId == null), 'demo never starts a geolocation watch');
 // demo: tap-to-move — stand on Church Street
 await pg.evaluate(() => { window.__dibs.map.map.setView([44.47875, -73.21268], 16); return 1; });
 await pg.waitForTimeout(400);
@@ -106,10 +108,19 @@ must(/Off the board/i.test(await pg.textContent('#claim')), 'standing in the lak
 await shot(pg, '11-off-board');
 await ctx.close();
 
+
+// Minimal RPC stub for the geolocation scenarios (demo mode never touches location services).
+const STUB = (route) => { const url = route.request().url(); const body = JSON.parse(route.request().postData() || '{}');
+  if (url.endsWith('/dibs_board')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ts: Date.now(), bounty: '-6_3', month: '2026-08', hexes: [] }) });
+  if (url.endsWith('/dibs_me')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, new: true }) });
+  if (url.endsWith('/dibs_profile')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, name: body.p_name, crew: body.p_crew }) });
+  if (url.endsWith('/dibs_claim')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, result: 'fresh', pts: 6, bounty: false, name: body.p_name, crew: body.p_crew, hex: { id: body.p_hex, name: 'Battery Park', weight: 3, hood: 'downtown' }, from: null, from_crew: null, held: 1, pts_month: 6 }) });
+  return route.fulfill({ status: 404, body: '{}' }); };
 // ---- 2. real geolocation path (mocked by Playwright), name remembered → no welcome
 ({ ctx, pg } = await page({ geolocation: BATTERY }));
+await pg.route('**/rest/v1/rpc/**', STUB);
 await pg.addInitScript(() => { localStorage.setItem('dibs-welcomed', '1'); localStorage.setItem('dibs-name', 'Geo Gus'); localStorage.setItem('dibs-crew', 'downtown'); });
-await pg.goto(`${BASE}/index.html?demo=1`);
+await pg.goto(`${BASE}/index.html?test=1`);
 await pg.waitForFunction(() => window.__dibs && window.__dibs.board);
 await pg.click('#claim'); // Find me
 await pg.waitForTimeout(1500);
@@ -127,8 +138,9 @@ await ctx.close();
 
 // ---- 3. fuzzy + bad accuracy
 ({ ctx, pg } = await page({ geolocation: { ...CHURCH, accuracy: 400 } }));
+await pg.route('**/rest/v1/rpc/**', STUB);
 await pg.addInitScript(() => { localStorage.setItem('dibs-welcomed', '1'); localStorage.setItem('dibs-name', 'Fuzzy Fred'); localStorage.setItem('dibs-crew', 'hill'); });
-await pg.goto(`${BASE}/index.html?demo=1`);
+await pg.goto(`${BASE}/index.html?test=1`);
 await pg.waitForFunction(() => window.__dibs && window.__dibs.board);
 await pg.click('#claim'); await pg.waitForTimeout(8000); // best-of window expires, adopts the 400 m fix
 must(/Step outside/.test(await pg.textContent('#claim')), `bad accuracy disables claiming (${(await pg.textContent('#claim')).trim()})`);
@@ -137,8 +149,9 @@ await ctx.close();
 
 // ---- 4. denied permission
 ({ ctx, pg } = await page({ permissions: [] }));
+await pg.route('**/rest/v1/rpc/**', STUB);
 await pg.addInitScript(() => { localStorage.setItem('dibs-welcomed', '1'); localStorage.setItem('dibs-name', 'No Nate'); localStorage.setItem('dibs-crew', 'nne'); });
-await pg.goto(`${BASE}/index.html?demo=1`);
+await pg.goto(`${BASE}/index.html?test=1`);
 await pg.waitForFunction(() => window.__dibs && window.__dibs.board);
 await pg.click('#claim'); await pg.waitForTimeout(1500);
 must(/Location is off/.test(await pg.textContent('#gps')), 'denied permission explains itself');
