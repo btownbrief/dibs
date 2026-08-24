@@ -234,7 +234,7 @@ function openWelcome(forClaim = false) {
         <div class="field"><label>Your crew — where’s home?</label><div class="crews">${crewsHtml}</div></div>
         <div class="err" id="onboard-err"></div>
         <button class="btn crew" type="submit">${forClaim ? 'Save and call dibs' : DEMO ? 'Start the demo' : 'Find my block'}</button>
-        <p class="meta">Your name shows on the blocks you hold and in the takes feed — that’s the game. Your coordinates never leave your phone; only the block does. No account, no email.</p>
+        <p class="meta">Your name shows on the blocks you hold and in the takes feed — that’s the game, so a nickname or trail name is perfect (Strava rules). Your coordinates never leave your phone; only the block does. No account, no email.</p>
       </form>
     </div>`);
   let crew = S.crew;
