@@ -26,8 +26,9 @@ in plain language. Plain static site, no build step, ES modules.
 - **Fail soft, never error-state.** No SQL yet → `not_ready` → "isn't switched on
   yet"; the map still draws from `data/hexes.json`. `?demo=1` runs everything
   against `FakeBackend` (seeded, saves nothing, tap the map to move).
-- **Map tiles are never cached** (CARTO/OSM policy) — `sw.js` lets cross-origin
-  requests straight through. Keep the CARTO + OSM attribution.
+- **Map tiles are never cached** (OSM tile policy) — `sw.js` lets cross-origin
+  requests straight through. Keep the OpenStreetMap attribution. CARTO's free
+  basemaps now watermark "API KEY REQUIRED"; do not switch back without a key.
 - **Canvas polygons can't be unit-tested for taps.** The playtest drives the
   hex sheet through the standings feed; tapping a hex on the real map is a
   field-test item. `?at=church|battery|leddy|uvm|…` or `?at=lat,lng` fakes a
