@@ -51,7 +51,7 @@ js/hex.js           pure hex grid math (flat-top axial, R=115 m, origin downtown
 js/core.js          pure rules: RULES, CREWS, decideClaim, scoring, bounty, names
 js/fake-backend.js  in-memory twin of the SQL (demo + tests)
 js/net.js           fetch → Supabase RPC, device token, plain-language errors
-js/map.js           Leaflet + CARTO Positron tiles + canvas hex polygons
+js/map.js           Leaflet + OpenStreetMap tiles (dark = CSS filter) + canvas hex polygons
 js/app.js           the app
 data/hexes.json     the board (generated)   data/landmarks.json  curated ★ points
 supabase/dibs-SETUP.sql   paste once: tables (RLS-locked) + RPCs
@@ -61,8 +61,9 @@ scripts/test-core.mjs     node --test    scripts/test-sql.sh  local-Postgres sui
 scripts/playtest.mjs      Playwright flow + screenshots    scripts/newsletter-block.mjs
 ```
 
-No build step. Leaflet 1.9.4 vendored (BSD-2). Tiles from CARTO (keyless,
-attribution required, never cached by the SW).
+No build step. Leaflet 1.9.4 vendored (BSD-2). Tiles from OpenStreetMap
+(attribution required, never cached by the SW; CARTO's free basemaps started
+stamping "API KEY REQUIRED" in 2026, so they are out).
 
 ## Ship checklist
 

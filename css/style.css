@@ -24,6 +24,9 @@ a { color: var(--accent); }
 .leaflet-container { font: inherit; background: var(--group); }
 .leaflet-control-attribution { font-size: 10px; background: rgba(255,255,255,.7); color: #445; }
 @media (prefers-color-scheme: dark) { #map, .leaflet-container { background: #0b0d10; } .leaflet-control-attribution { background: rgba(10,17,28,.7); color: #aab; } .leaflet-control-attribution a { color: #8cc; } }
+/* dark mode: OSM's tiles are light, so the tile pane is inverted (the hex polygons sit on their own canvas and keep their colours) */
+.leaflet-tile-pane .day { filter: saturate(.45) brightness(1.03); }
+.leaflet-tile-pane .night { filter: invert(1) hue-rotate(195deg) brightness(.72) contrast(.95) saturate(.35); }
 
 /* ---- top bar ---- */
 .top { position: fixed; top: calc(8px + var(--safe-t)); left: 10px; right: 10px; display: flex; align-items: center; justify-content: space-between; z-index: 1000; pointer-events: none; }
