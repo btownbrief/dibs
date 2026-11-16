@@ -1,21 +1,21 @@
-// Dibs — the map. Leaflet (vendored) + CARTO Positron tiles + one canvas polygon
+// Dibs — the map. Leaflet (vendored) + muted OpenStreetMap tiles + one canvas polygon
 // per hex. Tiles are never cached by the service worker (policy). Everything here
 // is presentation: the rules live in core.js, the truth lives on the server.
 /* global L */
 import { parseId, corners, centerLatLng } from './hex.js';
 import { CREW, RULES } from './core.js';
 
-const TILES = {
-  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-};
-const ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+// CARTO's free basemaps started requiring an API key (Nov 2026: tiles read "API KEY REQUIRED").
+// Standard OpenStreetMap tiles need no key; css/style.css (.dibs-tiles) mutes them to a calm
+// Positron-like grey, and inverts them for dark mode.
+const TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const BOARD_BOUNDS = L.latLngBounds([44.40, -73.33], [44.57, -73.12]);
 const INK = '#13243B';
 
 export function createMap(el, hexes, { dark = false } = {}) {
   const map = L.map(el, { zoomControl: false, attributionControl: true, minZoom: 12, maxZoom: 18, maxBounds: BOARD_BOUNDS.pad(0.3), maxBoundsViscosity: 0.8, tap: false });
-  L.tileLayer(dark ? TILES.dark : TILES.light, { attribution: ATTR, maxZoom: 18, subdomains: 'abcd', crossOrigin: true }).addTo(map);
+  L.tileLayer(TILES, { attribution: ATTR, maxZoom: 18, crossOrigin: true, className: dark ? 'dibs-tiles dibs-tiles-dark' : 'dibs-tiles' }).addTo(map);
   L.control.attribution({ prefix: false, position: 'bottomright' });
   map.setView([44.4787, -73.2140], 14);
 

@@ -151,3 +151,7 @@ a { color: var(--accent); }
 @media (min-width: 720px) { .dock { left: 50%; right: auto; transform: translateX(-50%); width: 460px; } }
 
 @media (prefers-reduced-motion: reduce) { .bounty-icon::before { animation: none; } .toast, .claim { transition: none; } #confetti i { display: none; } }
+
+/* Map tiles: standard OSM tiles, muted so the hex colours carry the board (see js/map.js). */
+.dibs-tiles { filter: grayscale(.85) brightness(1.06) contrast(.92); }
+.dibs-tiles-dark { filter: grayscale(1) invert(1) brightness(.82) contrast(.9); }
